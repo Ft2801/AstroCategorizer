@@ -11,8 +11,12 @@ PNG_LOGO = "logo.png"
 VERSION = "1.0.0"
 
 def run_command(command):
-    print(f">>> Running: {' '.join(command)}")
-    result = subprocess.run(command, shell=True)
+    if isinstance(command, list):
+        cmd_str = subprocess.list2cmdline(command)
+    else:
+        cmd_str = command
+    print(f">>> Running: {cmd_str}")
+    result = subprocess.run(cmd_str, shell=True)
     if result.returncode != 0:
         print(f"!!! Error executing command. Exit code: {result.returncode}")
         sys.exit(result.returncode)

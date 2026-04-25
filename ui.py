@@ -12,10 +12,10 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QScrollArea, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QStatusBar,
     QDialog, QSpacerItem, QDateEdit, QApplication, QSizeGrip,
-    QGraphicsDropShadowEffect
+    QGraphicsDropShadowEffect, QCheckBox
 )
 from PyQt5.QtGui import (QPixmap, QIcon, QFont, QColor, QPainter,
-                         QBrush, QCursor, QPolygon, QDoubleValidator)
+                         QBrush, QCursor, QPolygon, QDoubleValidator, QImageReader)
 from PyQt5.QtCore import (Qt, QSize, QPropertyAnimation, QEasingCurve,
                           QTimer, QThread, pyqtSignal, QDate, QRect, QPoint, QEvent)
 import database
@@ -226,10 +226,46 @@ CONSTELLATIONS = [
     "Virgo", "Volans", "Vulpecula",
 ]
 
+IAU_ABBREVIATIONS = {
+    "Andromeda": "And", "Antlia": "Ant", "Apus": "Aps", "Aquarius": "Aqr",
+    "Aquila": "Aql", "Ara": "Ara", "Aries": "Ari", "Auriga": "Aur",
+    "Boötes": "Boo", "Caelum": "Cae", "Camelopardalis": "Cam", "Cancer": "Cnc",
+    "Canes Venatici": "CVn", "Canis Major": "CMa", "Canis Minor": "CMi",
+    "Capricornus": "Cap", "Carina": "Car", "Cassiopeia": "Cas",
+    "Centaurus": "Cen", "Cepheus": "Cep", "Cetus": "Cet", "Chamaeleon": "Cha",
+    "Circinus": "Cir", "Columba": "Col", "Coma Berenices": "Com",
+    "Corona Australis": "CrA", "Corona Borealis": "CrB", "Corvus": "Crv",
+    "Crater": "Crt", "Crux": "Cru", "Cygnus": "Cyg", "Delphinus": "Del",
+    "Dorado": "Dor", "Draco": "Dra", "Equuleus": "Equ", "Eridanus": "Eri",
+    "Fornax": "For", "Gemini": "Gem", "Grus": "Gru", "Hercules": "Her",
+    "Horologium": "Hor", "Hydra": "Hya", "Hydrus": "Hyi", "Indus": "Ind",
+    "Lacerta": "Lac", "Leo": "Leo", "Leo Minor": "LMi", "Lepus": "Lep",
+    "Libra": "Lib", "Lupus": "Lup", "Lynx": "Lyn", "Lyra": "Lyr",
+    "Mensa": "Men", "Microscopium": "Mic", "Monoceros": "Mon", "Musca": "Mus",
+    "Norma": "Nor", "Octans": "Oct", "Ophiuchus": "Oph", "Orion": "Ori",
+    "Pavo": "Pav", "Pegasus": "Peg", "Perseus": "Per", "Phoenix": "Phe",
+    "Pictor": "Pic", "Pisces": "Psc", "Piscis Austrinus": "PsA", "Puppis": "Pup",
+    "Pyxis": "Pyx", "Reticulum": "Ret", "Sagitta": "Sge", "Sagittarius": "Sgr",
+    "Scorpius": "Sco", "Sculptor": "Scl", "Scutum": "Sct", "Serpens": "Ser",
+    "Sextans": "Sex", "Taurus": "Tau", "Telescopium": "Tel", "Triangulum": "Tri",
+    "Triangulum Australe": "TrA", "Tucana": "Tuc", "Ursa Major": "UMa",
+    "Ursa Minor": "UMi", "Vela": "Vel", "Virgo": "Vir", "Volans": "Vol",
+    "Vulpecula": "Vul"
+}
+
 OBJECT_TYPES = [
     "Galassie", "Nebulose", "Pianeti", "Ammassi",
     "Paesaggi", "Luna", "Sistema Solare", "Comete", "Altro"
 ]
+
+
+# Custom QTableWidgetItem for numeric sorting
+class NumericTableItem(QTableWidgetItem):
+    def __lt__(self, other):
+        try:
+            return float(self.data(Qt.UserRole + 1)) < float(other.data(Qt.UserRole + 1))
+        except:
+            return super().__lt__(other)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -324,7 +360,9 @@ class SkyMapFetcher(QThread):
             
             c_name = self.constellation.strip()
             # Gestiamo le costellazioni IAU tramite i file SVG da Wikipedia/Wikimedia Commons
-            filename = f"File:{c_name}_IAU.svg"
+            # Usiamo l'abbreviazione IAU a 3 lettere per il nome del file
+            abbr = IAU_ABBREVIATIONS.get(c_name, c_name)
+            filename = f"File:{abbr}_IAU.svg"
             url = (
                 f"https://commons.wikimedia.org/w/api.php?action=query&titles={urllib.parse.quote(filename)}"
                 f"&prop=imageinfo&iiprop=url&iiurlwidth=800&format=json"
@@ -514,12 +552,19 @@ class ImageViewerDialog(QDialog):
     def _set_zoom(self, z):
         if self._base.isNull():
             return
-        self._zoom = max(0.05, min(12.0, z))
+        self._zoom = max(0.1, min(12.0, z))
         w = int(self._base.width()  * self._zoom)
         h = int(self._base.height() * self._zoom)
         scaled = self._base.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self._img_lbl.setPixmap(scaled)
         self._img_lbl.resize(scaled.size())
+
+    def wheelEvent(self, e):
+        delta = e.angleDelta().y()
+        if delta > 0:
+            self._zoom_by(1.25)
+        elif delta < 0:
+            self._zoom_by(0.8)
 
     def _fit(self):
         if self._base.isNull():
@@ -534,8 +579,8 @@ class ImageViewerDialog(QDialog):
     def keyPressEvent(self, e):
         k = e.key()
         if k == Qt.Key_Escape:             self.close()
-        elif k in (Qt.Key_Plus, Qt.Key_Equal): self._zoom_by(1.25)
-        elif k == Qt.Key_Minus:            self._zoom_by(0.8)
+        elif k in (Qt.Key_Plus, Qt.Key_Equal, Qt.Key_Up): self._zoom_by(1.25)
+        elif k in (Qt.Key_Minus, Qt.Key_Down):         self._zoom_by(0.8)
         elif k == Qt.Key_F:                self._fit()
         else:                              super().keyPressEvent(e)
 
@@ -554,9 +599,17 @@ class SplashScreen(QWidget):
         self.logo_label = QLabel()
         self.logo_label.setAlignment(Qt.AlignCenter)
 
-        px = QPixmap(resource_path("logo.png"))
-        if not px.isNull():
-            self.logo_label.setPixmap(px.scaled(480, 480, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        reader = QImageReader(resource_path("logo.png"))
+        if reader.canRead():
+            orig_size = reader.size()
+            if orig_size.isValid():
+                new_size = orig_size.scaled(480, 480, Qt.KeepAspectRatio)
+                reader.setScaledSize(new_size)
+            px = QPixmap.fromImage(reader.read())
+            if not px.isNull():
+                self.logo_label.setPixmap(px)
+            else:
+                self.logo_label.setText("AstroCategorizer")
         else:
             self.logo_label.setText("AstroCategorizer")
             self.logo_label.setStyleSheet(f"color:{ACCENT_COLOR};font-size:32px;font-weight:bold;")
@@ -644,8 +697,8 @@ def _parse_coordinates(ra_str, dec_str):
     except ValueError:
         pass
     try:
-        rm = re.search(r'(\d+)\s*[hH°]\s*(\d+)\s*[mM\'′]\s*([\d.]+)', ra_str)
-        dm = re.search(r'([+-]?\d+)\s*[°dD]\s*(\d+)\s*[\'mM′]\s*([\d.]+)', dec_str)
+        rm = re.search(r'(\d+)\s*[hH°degdD]+\s*(\d+)\s*[mM\'′]\s*([\d.]+)', ra_str)
+        dm = re.search(r'([+-]?\d+)\s*[°degdD]+\s*(\d+)\s*[\'mM′]\s*([\d.]+)', dec_str)
         if not rm or not dm:
             return None, None
         h, m, s = map(float, rm.groups())
@@ -674,6 +727,8 @@ class MainWindow(QMainWindow):
         self.current_image_id   = None
         self.current_image_path = None
         self.all_images         = []
+        self._displayed_count   = 0
+        self._thumb_cache       = {}
         self._map_fetcher       = None
         self._map_fetcher_dss2  = None # Aggiunto riferimento mancante
         self._is_loading        = False
@@ -748,7 +803,7 @@ class MainWindow(QMainWindow):
         sb.addPermanentWidget(self._status_lbl)
 
     def set_status(self, text, ms=0):
-        self._status_lbl.setText(text)
+        self._status_lbl.setText(str(text))
         if ms:
             QTimer.singleShot(ms, lambda: self._status_lbl.setText("Pronto"))
 
@@ -798,15 +853,18 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, obj, event):
         if obj == getattr(self, 'overlay_container', None) and event.type() == QEvent.Resize:
+            # Ferma animazioni in corso per ricalcolare
+            for anim_attr in ('_sidebar_anim_in', '_sidebar_anim_out'):
+                anim = getattr(self, anim_attr, None)
+                if anim and anim.state() == QPropertyAnimation.Running:
+                    anim.stop()
+
             rect = obj.rect()
             w = 460
             if hasattr(self, 'sidebar_outerWidget'):
-                self.sidebar_outerWidget.setGeometry(
-                    rect.width() - w,
-                    0,
-                    w,
-                    rect.height()
-                )
+                if self.sidebar_outerWidget.isVisible():
+                    self.sidebar_outerWidget.setGeometry(rect.width() - w, 0, w, rect.height())
+                # else: non aggiornare la geometria se è nascosta
         return super().eventFilter(obj, event)
 
     def _show_sidebar(self):
@@ -816,10 +874,11 @@ class MainWindow(QMainWindow):
                 self._sidebar_anim_out.stop()
 
             self.sidebar_outerWidget.raise_()
+            rect = self.overlay_container.rect()
+            w = 460
+            
             if not self.sidebar_outerWidget.isVisible():
                 self.sidebar_outerWidget.show()
-                rect = self.overlay_container.rect()
-                w = 460
                 
                 start_geom = QRect(rect.width() + 20, 0, w, rect.height())
                 end_geom = QRect(rect.width() - w, 0, w, rect.height())
@@ -832,6 +891,9 @@ class MainWindow(QMainWindow):
                 self._sidebar_anim_in.setEndValue(end_geom)
                 self._sidebar_anim_in.setEasingCurve(QEasingCurve.OutQuad)
                 self._sidebar_anim_in.start()
+            else:
+                # Se è già visibile, assicura che la geometria sia aggiornata (es. dopo resize)
+                self.sidebar_outerWidget.setGeometry(rect.width() - w, 0, w, rect.height())
 
     def _hide_sidebar(self, force=False):
         if hasattr(self, 'sidebar_outerWidget') and hasattr(self, 'overlay_container'):
@@ -955,6 +1017,7 @@ class MainWindow(QMainWindow):
                         (6, 90), (7, 100), (8, 140), (9, 80)]:
             self.image_table.setColumnWidth(col, w_)
         self.image_table.itemSelectionChanged.connect(self.on_selection_changed)
+        self.image_table.doubleClicked.connect(self._open_fullscreen_viewer)
         self.image_table.setFocusPolicy(Qt.NoFocus)
         l.addWidget(self.image_table)
         return w
@@ -1176,7 +1239,13 @@ class MainWindow(QMainWindow):
         self.de_date.setDate(QDate.currentDate())
         self.de_date.setFixedWidth(115)
         self.de_date.setToolTip("Data di acquisizione (apre il calendario)")
+        
+        self.chk_date_set = QCheckBox()
+        self.chk_date_set.setToolTip("Abilita/disabilita data di acquisizione")
+        self.chk_date_set.toggled.connect(self.de_date.setEnabled)
+        
         acq.addWidget(self.de_date)
+        acq.addWidget(self.chk_date_set)
         il.addLayout(acq)
 
         il.addWidget(QLabel("Luogo di osservazione:"))
@@ -1254,7 +1323,14 @@ class MainWindow(QMainWindow):
         # Popola i tipi PRIMA di applicare i filtri, altrimenti il ComboBox vuoto
         # filtra via tutte le immagini al primo avvio
         current_filter_type = self.filter_type.currentText()
-        unique_types = set(img.get("type", "") for img in self.all_images if img.get("type", "").strip())
+        unique_types = set()
+        for img in self.all_images:
+            t = img.get("type", "")
+            if t == "Uncategorized" or (t and t not in OBJECT_TYPES):
+                t = "Altro"
+            if t:
+                unique_types.add(t)
+        
         type_list = ["Tutti i Tipi"] + sorted(list(unique_types))
         
         self.filter_type.blockSignals(True)
@@ -1264,14 +1340,12 @@ class MainWindow(QMainWindow):
             self.filter_type.setCurrentText(current_filter_type)
         else:
             self.filter_type.setCurrentIndex(0)
+        self.filter_type.blockSignals(False)
         self.apply_filters()
         self._is_loading = False
 
     def _on_search_changed(self, text):
-        if len(text) > 1:
-            self.all_images = database.search_images(text)
-        else:
-            self.all_images = database.get_all_images()
+        self._search_query = text.strip()
         self.apply_filters()
 
     def apply_filters(self):
@@ -1282,7 +1356,12 @@ class MainWindow(QMainWindow):
         self.image_table.setRowCount(0)
 
         row_idx = 0
-        for img in self.all_images:
+        missing_count = 0
+        
+        query = getattr(self, '_search_query', '')
+        base_list = database.search_images(query) if query else self.all_images
+        
+        for img in base_list:
             if type_f != "Tutti i Tipi" and img.get("type") != type_f:
                 continue
             if focal_f != "Tutte le Focali":
@@ -1293,16 +1372,26 @@ class MainWindow(QMainWindow):
                     continue
                 if "Ultra Deep Sky" in focal_f and fc != "Ultra Deep Sky":
                     continue
+            
             if not os.path.exists(img.get("path", "")):
+                missing_count += 1
                 continue
 
             self.image_table.insertRow(row_idx)
 
             # Col 0 – thumbnail
+            img_path = img.get("path", "")
+            if img_path not in self._thumb_cache:
+                px = QPixmap(img_path)
+                if not px.isNull():
+                    self._thumb_cache[img_path] = QIcon(
+                        px.scaled(66, 66, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    )
+                else:
+                    self._thumb_cache[img_path] = QIcon()
+
             thumb = QTableWidgetItem()
-            px = QPixmap(img["path"])
-            if not px.isNull():
-                thumb.setIcon(QIcon(px.scaled(66, 66, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+            thumb.setIcon(self._thumb_cache.get(img_path, QIcon()))
             thumb.setData(Qt.UserRole, img)
             self.image_table.setItem(row_idx, 0, thumb)
 
@@ -1319,7 +1408,8 @@ class MainWindow(QMainWindow):
             self.image_table.setItem(row_idx, 8, QTableWidgetItem(img.get("equipment", "")))
 
             stars = "★" * img.get("rating", 0) + "☆" * (5 - img.get("rating", 0))
-            r_item = QTableWidgetItem(stars)
+            r_item = NumericTableItem(stars)
+            r_item.setData(Qt.UserRole + 1, img.get("rating", 0))
             r_item.setForeground(QColor(STAR_COLOR))
             r_item.setTextAlignment(Qt.AlignCenter)
             self.image_table.setItem(row_idx, 9, r_item)
@@ -1327,9 +1417,13 @@ class MainWindow(QMainWindow):
             row_idx += 1
 
         self.image_table.setSortingEnabled(True)
-        n = self.image_table.rowCount()
-        self.lbl_count.setText(f"{n} immagine{'i' if n != 1 else ''}")
-        self.set_status(f"{n} immagini visualizzate")
+        self._displayed_count = self.image_table.rowCount()
+        self.lbl_count.setText(f"{self._displayed_count} {'immagine' if self._displayed_count == 1 else 'immagini'}")
+        
+        status_msg = f"{self._displayed_count} immagini visualizzate"
+        if missing_count > 0:
+            status_msg += f" | {missing_count} file non trovati su disco"
+        self.set_status(status_msg)
 
     # ─────────────────────────────────────────────────────────────────────────
     # SELECTION
@@ -1380,7 +1474,7 @@ class MainWindow(QMainWindow):
                 self.current_image_id   = None
                 self.current_image_path = None
 
-            count_text = self.lbl_count.text().split(" | ")[0]
+            count_text = f"{self._displayed_count} {'immagine' if self._displayed_count == 1 else 'immagini'}"
             if self.current_image_path:
                 self.lbl_count.setText(
                     f"{count_text}   |   Selezionato: {os.path.basename(self.current_image_path)}"
@@ -1392,9 +1486,13 @@ class MainWindow(QMainWindow):
 
     def _reselect_previous_rows(self):
         prev_rows = getattr(self, '_previous_selected_rows', [])
-        self.image_table.clearSelection()
-        for r in prev_rows:
-            self.image_table.selectRow(r)
+        self._ignore_selection_change = True
+        try:
+            self.image_table.clearSelection()
+            for r in prev_rows:
+                self.image_table.selectRow(r)
+        finally:
+            self._ignore_selection_change = False
 
     def _check_unsaved_changes(self):
         """Valuta se il pannello laterale ha modifiche pendenti rispetto al DB."""
@@ -1429,19 +1527,23 @@ class MainWindow(QMainWindow):
                 orig_foc = str(original_img.get("focal_length") or "")
 
             # 3. Data
-            curr_date = self.de_date.date().toString("dd/MM/yyyy")
-            orig_date = original_img.get("date_acquired") or ""
-            # Se originale è vuoto, il widget mostra oggi per default. Consideriamo non modificato.
-            if not orig_date and self.de_date.date() == QDate.currentDate():
+            if self.chk_date_set.isChecked():
+                curr_date = self.de_date.date().toString("dd/MM/yyyy")
+            else:
                 curr_date = ""
-                orig_date = ""
+            
+            orig_date = original_img.get("date_acquired") or ""
 
             # 4. Altri campi testo
             def s(val): return (str(val) if val is not None else "").strip()
 
+            orig_type = original_img.get("type", "")
+            if orig_type not in OBJECT_TYPES:
+                orig_type = "Altro"
+
             is_dirty = (
                 current_title != orig_title or
-                s(self.cb_type.currentText()) != s(original_img.get("type", "Altro")) or
+                s(self.cb_type.currentText()) != orig_type or
                 s(self.cb_constellation.currentText()) != s(original_img.get("constellation")) or
                 s(self.le_ra.text()) != s(original_img.get("ra")) or
                 s(self.le_dec.text()) != s(original_img.get("dec")) or
@@ -1483,7 +1585,10 @@ class MainWindow(QMainWindow):
 
         self._update_preview()
 
-        self.cb_type.setCurrentText(img.get("type") or "Altro")
+        img_type = img.get("type", "")
+        if img_type not in OBJECT_TYPES:
+            img_type = "Altro"
+        self.cb_type.setCurrentText(img_type)
         focal = img.get("focal_length")
         self.le_focal.setText(str(focal) if focal else "")
         self.cb_focal_cat.setCurrentText(img.get("focal_category") or "Unknown")
@@ -1512,6 +1617,8 @@ class MainWindow(QMainWindow):
         self.le_integration.setText(img.get("integration_time", ""))
 
         date_s = img.get("date_acquired", "")
+        self.chk_date_set.setChecked(bool(date_s))
+        self.de_date.setEnabled(bool(date_s))
         d = QDate.fromString(date_s, "dd/MM/yyyy") if date_s else QDate()
         self.de_date.setDate(d if d.isValid() else QDate.currentDate())
 
@@ -1522,7 +1629,7 @@ class MainWindow(QMainWindow):
         for b in (self.btn_save, self.btn_delete, self.btn_explorer,
                   self.btn_open_sys, self.btn_wiki, self.btn_update_dss2):
             b.setEnabled(True)
-        self.btn_copy_coords.setEnabled(bool(ra_v))
+        self.btn_copy_coords.setEnabled(bool(ra_v) and bool(dec_v))
         self._is_loading = False
 
     def _populate_sidebar_multi(self, count):
@@ -1544,8 +1651,12 @@ class MainWindow(QMainWindow):
                   self.le_equipment, self.le_integration, self.le_location):
             w.clear()
         self.te_desc.clear()
+        self.cb_type.setCurrentIndex(0)
+        self.cb_focal_cat.setCurrentIndex(0)
         self.cb_constellation.setCurrentText("")
         self.star_rating.rating = 0
+        self.chk_date_set.setChecked(False)
+        self.de_date.setEnabled(False)
 
         for b in (self.btn_copy_coords, self.btn_wiki, self.btn_update_dss2,
                   self.btn_open_sys, self.btn_explorer):
@@ -1560,22 +1671,30 @@ class MainWindow(QMainWindow):
             self.lbl_preview.clear()
             self.lbl_preview.setText("Anteprima non disponibile\n(file non trovato)")
             return
-        px = QPixmap(self.current_image_path)
-        if px.isNull():
+        
+        reader = QImageReader(self.current_image_path)
+        reader.setAutoTransform(True)
+        
+        vp_w = max(self.sidebar_scroll.viewport().width() - 28, 50)
+        orig_size = reader.size()
+        if orig_size.isValid() and orig_size.width() > 0:
+            new_size = orig_size.scaled(vp_w, 330, Qt.KeepAspectRatio)
+            reader.setScaledSize(new_size)
+            
+        img = reader.read()
+        if img.isNull():
             self.lbl_preview.clear()
             self.lbl_preview.setText("Impossibile caricare l'anteprima")
             return
-        vp_w = self.sidebar_scroll.viewport().width() - 28
-        if vp_w < 50:
-            vp_w = 300
-        scaled = px.scaledToWidth(vp_w, Qt.SmoothTransformation)
-        if scaled.height() > 330:
-            scaled = px.scaledToHeight(330, Qt.SmoothTransformation)
-        self.lbl_preview.setPixmap(scaled)
+            
+        self.lbl_preview.setPixmap(QPixmap.fromImage(img))
 
     # ── Sky Map ───────────────────────────────────────────────────────────────
     def _on_map_wiki_btn(self):
         c_v = self.cb_constellation.currentText().strip()
+        if not c_v:
+            self.lbl_map_wiki.setText("Seleziona una costellazione")
+            return
         self._start_map_wiki(c_v)
 
     def _start_map_wiki(self, constellation):
@@ -1624,6 +1743,7 @@ class MainWindow(QMainWindow):
                 "  AR:  05h 35m 17s   oppure  83.82\n"
                 "  Dec: -05° 23′ 28″  oppure  -5.39"
             )
+            self._restore_map_btns()
             return
 
         try:
@@ -1638,21 +1758,21 @@ class MainWindow(QMainWindow):
             f"  RA: {ra_d:.4f}°   Dec: {dec_d:.4f}°   FOV: {fov}°"
         )
 
-        if self._map_fetcher and self._map_fetcher.isRunning():
+        if self._map_fetcher_dss2 and self._map_fetcher_dss2.isRunning():
             try:
-                self._map_fetcher.finished.disconnect()
-                self._map_fetcher.error.disconnect()
+                self._map_fetcher_dss2.finished.disconnect()
+                self._map_fetcher_dss2.error.disconnect()
             except Exception:
                 pass
-            self._map_fetcher.terminate()
-            self._map_fetcher.wait(500)
+            self._map_fetcher_dss2.terminate()
+            self._map_fetcher_dss2.wait(500)
 
-        self._map_fetcher = SkyMapFetcherDSS2(ra_d, dec_d, fov)
-        self._map_fetcher.finished.connect(self._on_map_ready_dss2)
-        self._map_fetcher.error.connect(self._on_map_error_dss2)
-        self._map_fetcher.finished.connect(lambda _: self._restore_map_btns())
-        self._map_fetcher.error.connect(lambda _: self._restore_map_btns())
-        self._map_fetcher.start()
+        self._map_fetcher_dss2 = SkyMapFetcherDSS2(ra_d, dec_d, fov)
+        self._map_fetcher_dss2.finished.connect(self._on_map_ready_dss2)
+        self._map_fetcher_dss2.error.connect(self._on_map_error_dss2)
+        self._map_fetcher_dss2.finished.connect(lambda _: self._restore_map_btns())
+        self._map_fetcher_dss2.error.connect(lambda _: self._restore_map_btns())
+        self._map_fetcher_dss2.start()
 
     def _set_map_btns_enabled(self, enabled):
         if hasattr(self, 'btn_wiki'):
@@ -1731,10 +1851,12 @@ class MainWindow(QMainWindow):
         exts = {".png", ".jpg", ".jpeg", ".tif", ".tiff",
                 ".fit", ".fits", ".xisf"}
         count = 0
-        for entry in os.scandir(folder):
-            if entry.is_file() and os.path.splitext(entry.name)[1].lower() in exts:
-                if database.add_image(entry.path) is not None:
-                    count += 1
+        for root, dirs, files in os.walk(folder):
+            for fname in files:
+                if os.path.splitext(fname)[1].lower() in exts:
+                    full_path = os.path.join(root, fname)
+                    if database.add_image(full_path) is not None:
+                        count += 1
         self.load_images_from_db()
         self.set_status(f"{count} immagini importate dalla cartella.", 4000)
         if count:
@@ -1794,21 +1916,36 @@ class MainWindow(QMainWindow):
         equipment   = self.le_equipment.text().strip()
         integration = self.le_integration.text().strip()
         location    = self.le_location.text().strip()
-        date_acq    = self.de_date.date().toString("dd/MM/yyyy")
+        date_acq    = self.de_date.date().toString("dd/MM/yyyy") if self.chk_date_set.isChecked() else ""
         tags        = self.le_tags.text().strip()
         rating      = self.star_rating.rating
 
         saved_ids = []
         for row in rows:
-            img   = self.image_table.item(row, 0).data(Qt.UserRole)
-            title = (img.get("title", "") if is_multi
-                     else self.le_title.text().strip())
+            img_data = self.image_table.item(row, 0).data(Qt.UserRole)
+            img_id = img_data["id"]
+
+            # Recupera dati freschi dal DB per non perdere i campi non modificabili in multi
+            original = next((i for i in self.all_images if i["id"] == img_id), img_data)
+
+            if is_multi:
+                title = original.get("title") or original.get("filename", "")
+                # In multi, preserva coordinate e costellazione individuali
+                save_ra = original.get("ra", "")
+                save_dec = original.get("dec", "")
+                save_constellation = original.get("constellation", "")
+            else:
+                title = self.le_title.text().strip()
+                save_ra = ra_v
+                save_dec = dec_v
+                save_constellation = constellation
+
             database.update_image(
-                img["id"], title, img_type, focal, focal_cat, desc,
-                ra_v, dec_v, constellation, equipment, integration, location,
-                date_acq, tags, rating
+                img_id, title, img_type, focal, focal_cat, desc,
+                save_ra, save_dec, save_constellation, equipment,
+                integration, location, date_acq, tags, rating
             )
-            saved_ids.append(img["id"])
+            saved_ids.append(img_id)
 
         # Ricarica e blocca check per un attimo
         self._is_loading = True
@@ -1816,10 +1953,14 @@ class MainWindow(QMainWindow):
         self._is_loading = False
 
         # Ripristina selezione
-        for r in range(self.image_table.rowCount()):
-            item = self.image_table.item(r, 0)
-            if item and item.data(Qt.UserRole)["id"] in saved_ids:
-                self.image_table.selectRow(r)
+        self._ignore_selection_change = True
+        try:
+            for r in range(self.image_table.rowCount()):
+                item = self.image_table.item(r, 0)
+                if item and item.data(Qt.UserRole)["id"] in saved_ids:
+                    self.image_table.selectRow(r)
+        finally:
+            self._ignore_selection_change = False
 
         self.set_status(f"Salvate {len(saved_ids)} immagine/i.", 3000)
 
@@ -1836,6 +1977,7 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             for row in rows:
                 img = self.image_table.item(row, 0).data(Qt.UserRole)
+                self._thumb_cache.pop(img.get("path", ""), None)
                 database.delete_image(img["id"])
             self._hide_sidebar()
             self.current_image_id   = None
@@ -1849,12 +1991,12 @@ class MainWindow(QMainWindow):
                               "Il file originale non è accessibile.", QMessageBox.Warning)
             return
         if sys.platform == "win32":
-            subprocess.Popen(
-                f'explorer /select,"{os.path.normpath(self.current_image_path)}"'
-            )
+            subprocess.Popen(f'explorer /select,"{os.path.normpath(self.current_image_path)}"')
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", self.current_image_path])
         else:
-            import webbrowser
-            webbrowser.open("file://" + os.path.dirname(self.current_image_path))
+            # Linux: apre il file manager sulla cartella
+            subprocess.Popen(["xdg-open", os.path.dirname(self.current_image_path)])
 
     def _open_fullscreen_if_path(self):
         if self.current_image_path and os.path.exists(self.current_image_path):
@@ -1892,11 +2034,18 @@ class MainWindow(QMainWindow):
             self, "Esporta catalogo CSV", "catalogo_astro.csv", "CSV (*.csv)"
         )
         if path:
-            n = database.export_to_csv(path)
-            self.show_message(
-                "Esportazione completata",
-                f"Esportate {n} immagini in:\n{path}"
-            )
+            try:
+                n = database.export_to_csv(path)
+                self.show_message("Esportazione completata", f"Esportate {n} immagini in:\n{path}")
+            except PermissionError:
+                self.show_message(
+                    "Errore di accesso",
+                    f"Impossibile scrivere il file:\n{path}\n\n"
+                    "Verifica che il file non sia aperto da un altro programma.",
+                    QMessageBox.Warning
+                )
+            except Exception as e:
+                self.show_message("Errore esportazione", str(e), QMessageBox.Critical)
 
     def _show_stats(self):
         StatsDialog(self).exec_()
